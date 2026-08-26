@@ -13,10 +13,28 @@ const wishlistRoutes = require('./routes/wishlist.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
-  .split(',').map(value => value.trim()).filter(Boolean);
+const configuredOrigins = (process.env.CLIENT_URL || '')
+  .split(',')
+  .map(value => value.trim())
+  .filter(Boolean);
 
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+const allowedOrigins = new Set([
+  'http://localhost:3000',
+  'https://shopez-jagadeesho11s-projects.vercel.app',
+  ...configuredOrigins
+]);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    // Allow Vercel preview deployments for this ShopEZ frontend.
+    if (/^https:\/\/shopez(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS origin not allowed'));
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));

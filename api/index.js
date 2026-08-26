@@ -1,14 +1,5 @@
-const { app, connectDB } = require('../src/server');
+const { app } = require('../src/server');
 
-module.exports = async (req, res) => {
-  try {
-    await connectDB();
-    return app(req, res);
-  } catch (error) {
-    console.error('API database connection failed:', error.message);
-    return res.status(503).json({
-      message: 'Database unavailable. Check MongoDB Atlas network access and Vercel environment variables.',
-      code: 'DATABASE_UNAVAILABLE'
-    });
-  }
-};
+// Vercel's Node runtime can invoke the Express application directly.
+// Database connection is handled by the /api middleware in src/server.js.
+module.exports = app;

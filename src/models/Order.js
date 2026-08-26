@@ -8,16 +8,19 @@ const orderSchema = new mongoose.Schema({
     image: String,
     price: Number,
     quantity: { type: Number, min: 1 },
-    size: Number,
+    size: String,
     color: String
   }],
   shippingAddress: {
     name: String,
     phone: String,
+    mobile: String,
+    email: String,
     address: String,
     city: String,
     state: String,
-    postalCode: String
+    postalCode: String,
+    pincode: String
   },
   paymentMethod: { type: String, default: 'COD' },
   paymentStatus: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },

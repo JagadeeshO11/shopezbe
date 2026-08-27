@@ -14,7 +14,12 @@ const wishlistRoutes = require('./routes/wishlist.routes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const configuredOrigins = (process.env.CLIENT_URL || '').split(',').map(v => v.trim()).filter(Boolean);
-const allowedOrigins = new Set(['http://localhost:3000', 'https://shopez-jagadeesho11s-projects.vercel.app', ...configuredOrigins]);
+const allowedOrigins = new Set([
+  'http://localhost:3000',
+  'https://shopez-jagadeesho11s-projects.vercel.app',
+  'https://shopez-kappa-green.vercel.app',
+  ...configuredOrigins
+]);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -24,6 +29,7 @@ app.use(cors({
   },
   credentials: true
 }));
+app.options('*', cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
@@ -55,7 +61,6 @@ async function connectDB() {
   return dbPromise;
 }
 
-// Ensure MongoDB is connected before any API route accesses a model.
 app.use('/api', async (req, res, next) => {
   if (req.path === '/health') return next();
   try {

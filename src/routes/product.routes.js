@@ -18,7 +18,8 @@ const normalizePayload = (body = {}) => {
 
   return {
     name,
-    title: undefined,
+    sku: String(body.sku || body.productSku || '').trim(),
+    seller: String(body.seller || body.sellerName || 'ShopEZ Marketplace').trim(),
     description: body.description ?? body.productDescription ?? '',
     category,
     brand: body.brand || '',
@@ -39,15 +40,18 @@ const normalizePayload = (body = {}) => {
 
 router.get('/', async (req, res, next) => {
   try {
-    const { category, search, brand, minPrice, maxPrice, active } = req.query;
+    const { category, search, brand, seller, minPrice, maxPrice, active } = req.query;
     const filter = {};
     if (active !== 'false') filter.active = true;
     if (category) filter.category = new RegExp(`^${escapeRegex(category)}$`, 'i');
     if (brand) filter.brand = new RegExp(`^${escapeRegex(brand)}$`, 'i');
+    if (seller) filter.seller = new RegExp(escapeRegex(seller), 'i');
     if (search) {
       const safeSearch = escapeRegex(search);
       filter.$or = [
         { name: new RegExp(safeSearch, 'i') },
+        { sku: new RegExp(safeSearch, 'i') },
+        { seller: new RegExp(safeSearch, 'i') },
         { description: new RegExp(safeSearch, 'i') },
         { brand: new RegExp(safeSearch, 'i') }
       ];

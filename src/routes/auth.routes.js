@@ -138,6 +138,9 @@ async function requestOtp(req, res, next) {
     if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
     }
+    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+      return res.status(503).json({ message: 'Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM in the backend .env file.' });
+    }
     const OtpChallenge = require('../models/OtpChallenge');
     const now = new Date();
     let challenge = await OtpChallenge.findOne({ email });
@@ -221,7 +224,7 @@ router.post('/google', async (req, res, next) => {
     const verifyResponse = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential));
     if (!verifyResponse.ok) return res.status(401).json({ message: 'Google sign-in could not be verified.' });
     const claims = await verifyResponse.json();
-    if (claims.aud !== process.env.GOOGLE_CLIENT_ID || claims.email_verified !== 'true' || !claims.email || !claims.sub) {
+    if (claims.aud !== process.env.GOOGLE_CLIENT_ID || !['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss) || claims.email_verified !== 'true' || !claims.email || !claims.sub) {
       return res.status(401).json({ message: 'Google sign-in could not be verified.' });
     }
     const email = String(claims.email).trim().toLowerCase();

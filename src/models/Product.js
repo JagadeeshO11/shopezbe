@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
+  sku: { type: String, default: '', trim: true, maxlength: 80 },
+  seller: { type: String, default: 'ShopEZ Marketplace', trim: true, maxlength: 120 },
   description: { type: String, default: '' },
   category: { type: String, required: true, trim: true },
   brand: { type: String, default: '' },

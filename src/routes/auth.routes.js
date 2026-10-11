@@ -25,7 +25,8 @@ function cookieOptions() {
 function readCookie(req, name) {
   const raw = req.headers.cookie || '';
   const pair = raw.split(';').map(v => v.trim()).find(v => v.startsWith(name + '='));
-  return pair ? decodeURIComponent(pair.slice(name.length + 1)) : '';
+  if (!pair) return '';
+  try { return decodeURIComponent(pair.slice(name.length + 1)); } catch { return ''; }
 }
 
 function tokenHash(token) {
@@ -133,10 +134,12 @@ router.post('/logout', async (req, res) => {
   try {
     const rawToken = readCookie(req, REFRESH_COOKIE);
     if (rawToken) await Session.findOneAndUpdate({ refreshTokenHash: tokenHash(rawToken), revokedAt: null }, { $set: { revokedAt: new Date() } });
-  } finally {
     res.clearCookie(REFRESH_COOKIE, cookieOptions());
+    return res.json({ message: 'This device has been signed out.' });
+  } catch (error) {
+    res.clearCookie(REFRESH_COOKIE, cookieOptions());
+    return res.status(503).json({ message: 'Could not confirm server-side sign-out. Please try again.' });
   }
-  res.json({ message: 'This device has been signed out.' });
 });
 
 router.post('/logout-all', protect, async (req, res, next) => {

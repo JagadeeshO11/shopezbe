@@ -40,8 +40,12 @@ router.patch('/items/:itemId', async (req, res, next) => {
     const cart = await Cart.findOne({ user: req.user._id });
     const item = cart?.items.id(req.params.itemId);
     if (!item) return res.status(404).json({ message: 'Cart item not found' });
-    item.quantity = Number(req.body.quantity);
-    if (!Number.isInteger(item.quantity) || item.quantity < 1) return res.status(400).json({ message: 'Quantity must be at least 1' });
+    const requestedQuantity = Number(req.body.quantity);
+    if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1) return res.status(400).json({ message: 'Quantity must be a positive integer' });
+    const product = await Product.findById(item.product);
+    if (!product || !product.active) return res.status(404).json({ message: 'This product is no longer available' });
+    if (requestedQuantity > product.stock) return res.status(400).json({ message: `Only ${product.stock} item(s) are currently in stock` });
+    item.quantity = requestedQuantity;
     await cart.save();
     res.json({ cart: await cart.populate('items.product') });
   } catch (error) { next(error); }

@@ -92,9 +92,151 @@ router.post('/login', async (req, res, next) => {
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail || typeof password !== 'string') return res.status(400).json({ message: 'Email and password are required' });
     const user = await User.findOne({ email: normalizedEmail });
-    if (!user || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ message: 'Invalid email or password' });
+    if (!user || !user.password || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ message: 'Invalid email or password' });
     const session = await startSession(req, res, user);
     res.json({ ...session, user: publicUser(user), accessTokenExpiresIn: ACCESS_TTL });
+  } catch (error) { next(error); }
+});
+
+
+function otpHash(email, code) {
+  return crypto.createHash('sha256').update(`${email}:${code}:${process.env.JWT_SECRET || 'local-only-change-this'}`).digest('hex');
+}
+
+async function sendOtpEmail(email, code) {
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    const error = new Error('Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM in your local .env file.');
+    error.status = 503;
+    throw error;
+  }
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM,
+      to: [email],
+      subject: 'Your ShopEZ sign-in code',
+      text: `Your ShopEZ verification code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px"><h2>ShopEZ verification</h2><p>Use this one-time code to continue:</p><p style="font-size:32px;letter-spacing:8px;font-weight:700">${code}</p><p>This code expires in 10 minutes. Never share it with anyone.</p></div>`
+    })
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    console.error('ShopEZ OTP email provider rejected the request:', response.status, detail.slice(0, 300));
+    const error = new Error('Could not send the verification email. Check your email provider configuration.');
+    error.status = 502;
+    throw error;
+  }
+}
+
+async function requestOtp(req, res, next) {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+    const OtpChallenge = require('../models/OtpChallenge');
+    const now = new Date();
+    let challenge = await OtpChallenge.findOne({ email });
+    if (challenge && challenge.lastSentAt && now - challenge.lastSentAt < 60 * 1000) {
+      return res.status(429).json({ message: 'Please wait 60 seconds before requesting another code.' });
+    }
+    const withinWindow = challenge?.createdAt && now - challenge.createdAt < 15 * 60 * 1000;
+    if (withinWindow && challenge.sends >= 3) {
+      return res.status(429).json({ message: 'Too many codes requested. Try again in 15 minutes.' });
+    }
+    const code = String(crypto.randomInt(100000, 1000000));
+    const sends = withinWindow ? challenge.sends + 1 : 1;
+    if (!challenge) challenge = new OtpChallenge({ email });
+    challenge.codeHash = otpHash(email, code);
+    challenge.expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+    challenge.attempts = 0;
+    challenge.sends = sends;
+    challenge.lastSentAt = now;
+    challenge.consumedAt = null;
+    await challenge.save();
+    await sendOtpEmail(email, code);
+    return res.json({ message: 'If this email can receive ShopEZ verification messages, a code has been sent. Check your inbox and spam folder.' });
+  } catch (error) { next(error); }
+}
+
+router.post('/otp/request', requestOtp);
+router.post('/otp/resend', requestOtp);
+
+router.post('/otp/verify', async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '').trim();
+    const name = String(req.body?.name || '').trim();
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || !/^\\d{6}$/.test(code)) {
+      return res.status(400).json({ message: 'Enter the email address and six-digit code.' });
+    }
+    const OtpChallenge = require('../models/OtpChallenge');
+    const challenge = await OtpChallenge.findOne({ email });
+    if (!challenge || challenge.consumedAt || challenge.expiresAt <= new Date()) {
+      return res.status(400).json({ message: 'That code has expired or is invalid. Request a new code.' });
+    }
+    if (challenge.attempts >= 5) {
+      return res.status(429).json({ message: 'Too many incorrect attempts. Request a new code.' });
+    }
+    const expected = Buffer.from(challenge.codeHash, 'hex');
+    const supplied = Buffer.from(otpHash(email, code), 'hex');
+    const matches = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
+    if (!matches) {
+      challenge.attempts += 1;
+      await challenge.save();
+      return res.status(challenge.attempts >= 5 ? 429 : 400).json({
+        message: challenge.attempts >= 5 ? 'Too many incorrect attempts. Request a new code.' : 'That code is incorrect.'
+      });
+    }
+    let user = await User.findOne({ email });
+    if (!user && (name.length < 2 || name.length > 80)) {
+      return res.status(400).json({ message: 'Enter your full name to create your ShopEZ account.' });
+    }
+    challenge.consumedAt = new Date();
+    await challenge.save();
+    if (!user) {
+      try {
+        user = await User.create({ name, email, password: undefined, phone: '' });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        user = await User.findOne({ email });
+      }
+    }
+    if (!user) return res.status(500).json({ message: 'Could not complete sign-in. Please try again.' });
+    const session = await startSession(req, res, user);
+    return res.json({ ...session, user: publicUser(user), accessTokenExpiresIn: ACCESS_TTL });
+  } catch (error) { next(error); }
+});
+
+router.post('/google', async (req, res, next) => {
+  try {
+    const credential = String(req.body?.credential || '');
+    if (!credential || credential.length > 10000) return res.status(400).json({ message: 'A valid Google credential is required.' });
+    if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ message: 'Google sign-in is not configured. Set GOOGLE_CLIENT_ID in the backend .env file.' });
+    const verifyResponse = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential));
+    if (!verifyResponse.ok) return res.status(401).json({ message: 'Google sign-in could not be verified.' });
+    const claims = await verifyResponse.json();
+    if (claims.aud !== process.env.GOOGLE_CLIENT_ID || claims.email_verified !== 'true' || !claims.email || !claims.sub) {
+      return res.status(401).json({ message: 'Google sign-in could not be verified.' });
+    }
+    const email = String(claims.email).trim().toLowerCase();
+    let user = await User.findOne({ email });
+    if (!user) {
+      const name = String(claims.name || claims.given_name || 'ShopEZ customer').trim().slice(0, 80);
+      try {
+        user = await User.create({ name, email, password: undefined, phone: '' });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        user = await User.findOne({ email });
+      }
+    }
+    if (!user) return res.status(500).json({ message: 'Could not complete Google sign-in. Please try again.' });
+    const session = await startSession(req, res, user);
+    return res.json({ ...session, user: publicUser(user), accessTokenExpiresIn: ACCESS_TTL });
   } catch (error) { next(error); }
 });
 

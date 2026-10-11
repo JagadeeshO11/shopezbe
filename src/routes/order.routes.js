@@ -25,7 +25,9 @@ router.post('/', async (req, res, next) => {
     });
 
     const subtotal = normalized.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    const safeShippingFee = Math.max(0, Number(shippingFee || 0));
+    const parsedShippingFee = Number(shippingFee || 0);
+    if (!Number.isFinite(parsedShippingFee) || parsedShippingFee < 0 || parsedShippingFee > 5000) return res.status(400).json({ message: 'Invalid shipping fee' });
+    const safeShippingFee = parsedShippingFee;
     const total = subtotal + safeShippingFee;
     const address = {
       name: shippingAddress.name || req.user.name,
@@ -49,7 +51,24 @@ router.post('/', async (req, res, next) => {
       total
     });
 
-    await Promise.all(normalized.map(i => Product.findByIdAndUpdate(i.product, { $inc: { stock: -i.quantity } })));
+    // Use a conditional stock decrement so two concurrent orders cannot oversell an item.
+    // If a decrement fails, restore any successful decrements and remove the unconfirmed order.
+    const reserved = [];
+    try {
+      for (const item of normalized) {
+        const updatedProduct = await Product.findOneAndUpdate(
+          { _id: item.product, active: true, stock: { $gte: item.quantity } },
+          { $inc: { stock: -item.quantity } },
+          { new: true }
+        );
+        if (!updatedProduct) throw Object.assign(new Error(`Insufficient stock for ${item.name}; please refresh your bag`), { status: 409 });
+        reserved.push(item);
+      }
+    } catch (reservationError) {
+      await Promise.all(reserved.map(item => Product.findByIdAndUpdate(item.product, { $inc: { stock: item.quantity } })));
+      await Order.findByIdAndDelete(order._id);
+      throw reservationError;
+    }
     await Cart.findOneAndUpdate({ user: req.user._id }, { items: [] });
     res.status(201).json({ order });
   } catch (error) { next(error); }

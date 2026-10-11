@@ -29,9 +29,9 @@ router.post('/', async (req, res, next) => {
     if (!Number.isFinite(parsedShippingFee) || parsedShippingFee < 0 || parsedShippingFee > 5000) return res.status(400).json({ message: 'Invalid shipping fee' });
     const safeShippingFee = parsedShippingFee;
     const total = subtotal + safeShippingFee;
-    const suppliedPhone = String(shippingAddress.phone || shippingAddress.mobile || '').replace(/[\\s()-]/g, '');
+    const suppliedPhone = String(shippingAddress.phone || shippingAddress.mobile || '').replace(/[\s()-]/g, '');
     const normalizedPhone = suppliedPhone.startsWith('+91') ? suppliedPhone.slice(3) : suppliedPhone.startsWith('91') && suppliedPhone.length === 12 ? suppliedPhone.slice(2) : suppliedPhone;
-    if (!/^[6-9]\\d{9}$/.test(normalizedPhone)) {
+    if (!/^[6-9]\d{9}$/.test(normalizedPhone)) {
       return res.status(400).json({ message: 'Enter a valid 10-digit Indian mobile number to place your order.' });
     }
     const address = {

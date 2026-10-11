@@ -91,7 +91,7 @@ router.post('/login', async (req, res, next) => {
     const { email, password } = req.body || {};
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail || typeof password !== 'string') return res.status(400).json({ message: 'Email and password are required' });
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({ email: normalizedEmail }).select('+password');
     if (!user || !user.password || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ message: 'Invalid email or password' });
     const session = await startSession(req, res, user);
     res.json({ ...session, user: publicUser(user), accessTokenExpiresIn: ACCESS_TTL });
@@ -171,11 +171,12 @@ router.post('/otp/verify', async (req, res, next) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const code = String(req.body?.code || '').trim();
     const name = String(req.body?.name || '').trim();
+    const phone = String(req.body?.phone || '').trim();
     if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || !/^\\d{6}$/.test(code)) {
       return res.status(400).json({ message: 'Enter the email address and six-digit code.' });
     }
     const OtpChallenge = require('../models/OtpChallenge');
-    const challenge = await OtpChallenge.findOne({ email });
+    const challenge = await OtpChallenge.findOne({ email }).select('+codeHash');
     if (!challenge || challenge.consumedAt || challenge.expiresAt <= new Date()) {
       return res.status(400).json({ message: 'That code has expired or is invalid. Request a new code.' });
     }
@@ -200,7 +201,7 @@ router.post('/otp/verify', async (req, res, next) => {
     await challenge.save();
     if (!user) {
       try {
-        user = await User.create({ name, email, password: undefined, phone: '' });
+        user = await User.create({ name, email, password: undefined, phone });
       } catch (error) {
         if (error.code !== 11000) throw error;
         user = await User.findOne({ email });

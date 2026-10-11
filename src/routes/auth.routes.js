@@ -135,7 +135,7 @@ async function sendOtpEmail(email, code) {
 async function requestOtp(req, res, next) {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
     }
     if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
@@ -175,7 +175,7 @@ router.post('/otp/verify', async (req, res, next) => {
     const code = String(req.body?.code || '').trim();
     const name = String(req.body?.name || '').trim();
     const phone = String(req.body?.phone || '').trim();
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || !/^\\d{6}$/.test(code)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code)) {
       return res.status(400).json({ message: 'Enter the email address and six-digit code.' });
     }
     const OtpChallenge = require('../models/OtpChallenge');

@@ -19,12 +19,17 @@ router.get('/', async (req, res, next) => {
 router.post('/items', async (req, res, next) => {
   try {
     const { productId, quantity = 1, size, color } = req.body;
+    const requestedQuantity = Number(quantity);
+    if (!productId || !Number.isInteger(requestedQuantity) || requestedQuantity < 1) return res.status(400).json({ message: 'A valid product ID and positive integer quantity are required' });
     const product = await Product.findById(productId);
     if (!product || !product.active) return res.status(404).json({ message: 'Product not found' });
     const cart = await Cart.findOne({ user: req.user._id }) || await Cart.create({ user: req.user._id, items: [] });
+    if (requestedQuantity > product.stock) return res.status(400).json({ message: `Only ${product.stock} item(s) are currently in stock` });
     const item = cart.items.find(i => i.product.toString() === productId && String(i.size || '') === String(size || '') && String(i.color || '') === String(color || ''));
-    if (item) item.quantity += Number(quantity);
-    else cart.items.push({ product: productId, quantity: Number(quantity), size, color });
+    if (item) {
+      if (item.quantity + requestedQuantity > product.stock) return res.status(400).json({ message: `Only ${product.stock} item(s) are currently in stock` });
+      item.quantity += requestedQuantity;
+    } else cart.items.push({ product: productId, quantity: requestedQuantity, size, color });
     await cart.save();
     res.status(201).json({ cart: await cart.populate('items.product') });
   } catch (error) { next(error); }

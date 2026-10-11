@@ -53,6 +53,7 @@ function deviceName(req) {
 }
 
 async function startSession(req, res, user) {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is not configured');
   const refreshToken = crypto.randomBytes(48).toString('hex');
   const session = await Session.create({
     user: user._id,
